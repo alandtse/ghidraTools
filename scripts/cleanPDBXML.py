@@ -376,6 +376,10 @@ def main():
             r'datatype="(?:G|hkRef)Ptr&lt;([\w:,&;]+)&gt;"',
             r'datatype="\1*"',
         ),
+        (  # NiPointer since no way for Ghidra to know it's a pointer and it fails `checkAncestry``
+            r'datatype="NiPointer&lt;([\w:,&;]+)&gt;"',
+            r'datatype="\1*"',
+        ),
     ]
 
     # List of name prefixes to delete <class> or <symbol> nodes
