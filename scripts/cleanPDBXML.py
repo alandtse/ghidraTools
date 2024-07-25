@@ -147,6 +147,70 @@ def fix_class_inheritance(root: ET.Element) -> None:
                 seen_non_unknown = True
 
 
+def fix_enumeration(xml_content: str) -> str:
+    """
+    Update the stl:enumeration datatype length in the XML content.
+
+    Args:
+        xml_content (str): The XML content as a string.
+
+    Returns:
+        str: The updated XML content as a string.
+
+    >>> xml_content = '''
+    ... <class name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" length="0x8">
+    ...     <member name="enum_type" datatype="int" offset="0x0" kind="Unknown" length="0x4" />
+    ...     <member name="underlying_type" datatype="__uint64" offset="0x0" kind="Unknown" length="0x8" />
+    ...     <member name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+    ...     <member name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+    ...     <member name="operator bool" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+    ...     <member name="operator*" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+    ...     <member name="get" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+    ...     <member name="underlying" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+    ...     <member name="_impl" datatype="__uint64" offset="0x0" kind="Member" length="0x0" />
+    ... </class>
+    ... '''
+    >>> updated_xml = fix_enumeration(xml_content)
+    >>> print(updated_xml)
+    <class name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" length="0x8">
+        <member name="enum_type" datatype="int" offset="0x0" kind="Unknown" length="0x4" />
+        <member name="underlying_type" datatype="__uint64" offset="0x0" kind="Unknown" length="0x8" />
+        <member name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+        <member name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+        <member name="operator bool" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+        <member name="operator*" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+        <member name="get" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+        <member name="underlying" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+        <member name="_impl" datatype="GString::HeapType" offset="0x0" kind="Member" length="0x8" />
+    </class>
+    """
+    tree = ET.ElementTree(ET.fromstring(xml_content))
+    root = tree.getroot()
+
+    # Iterate through all 'class' elements to find 'enumeration' tags
+    for class_elem in root.findall(".//class"):
+        class_name = class_elem.get("name")
+        if class_name and class_name.startswith("enumeration"):
+            # Extract the enum type and length
+            parts = class_name.split(",")
+            if len(parts) == 2:
+                enum_type = parts[0].split("<enum ")[1].strip()
+                length = class_elem.get("length")
+                length_value = int(length, 16)  # Convert length from hex to decimal
+
+                # Find the '_impl' member
+                for member in class_elem.findall("member"):
+                    if member.get("name") == "_impl":
+                        member.set("datatype", enum_type)
+                        member.set(
+                            "length", f"0x{length_value:X}"
+                        )  # Convert length back to hex
+                        break
+
+    # Convert tree back to string
+    return ET.tostring(root, encoding="unicode")
+
+
 def parse_and_modify_xml(xml_data: str, delete_patterns: Dict[str, List[str]]) -> str:
     """
     Parse the XML data, find the <functions> node and clear all its child nodes,
@@ -408,6 +472,9 @@ def main():
 
     # Parse and modify the cleaned XML
     modified_xml_data = parse_and_modify_xml(cleaned_data, delete_patterns)
+
+    # Fix enumerations
+    # modified_xml_data = fix_enumeration(modified_xml_data)
 
     # Retain only the related nodes if keep_only is specified
     if args.keep_only:
