@@ -117,6 +117,8 @@ def fix_class_inheritance(root: ET.Element) -> None:
             if (
                 name_attr
                 and not name_attr.startswith("std")
+                and not name_attr == "enum_type"
+                and not datatype_attr.endswith("*")
                 and kind_attr == "Unknown"
                 and length_attr
                 and not seen_non_unknown
@@ -194,7 +196,7 @@ def parse_and_modify_xml(xml_data: str, delete_patterns: Dict[str, List[str]]) -
             parent.remove(node)
 
     # Fix class inheritance by modifying 'member' nodes
-    #fix_class_inheritance(root)
+    fix_class_inheritance(root)
 
     # Remove duplicate nodes
     remove_duplicate_nodes(root)
