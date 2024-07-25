@@ -359,10 +359,12 @@ def main():
 
     # List of replace patterns (regex pattern, replacement string with capture groups)
     replace_patterns = [
-        (  # replace stl::enum
-            r'datatype="enumeration&lt;enum ([\w:]+),[^"]*"',
-            r'datatype="\1"',
-        ),
+        # (  # replace stl::enum
+        #     # r'datatype="enumeration&lt;enum ([\w:]+),[^"]*"',
+        #     # r'datatype="\1"',
+        #     r'(<member name="underlying_type"[^/]*kind=")Unknown"',
+        #     r'\1Member"',
+        # ),
         (  # replace addresses
             r'address="0x[1-9a-f][0-9a-f]*"',
             r'address="0x0"',
