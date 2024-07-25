@@ -387,15 +387,16 @@ def main():
     # List of name prefixes to delete <class> or <symbol> nodes
     delete_patterns = {
         "name": [
-            "enumeration&lt;enum ",
+            # "enumeration&lt;enum ",
             "fmt::",
             "Catch::",
             "spdlog::",
-            "std::",
-            "binary_io::"
+            "REL::",
+            "binary_io::",
+            "std::basic_ostream<",
         ],
         "datatype": [
-            "enumeration&lt;enum ",
+            # "enumeration&lt;enum ",
             "fmt::",
             "Catch::",
             "spdlog::",
