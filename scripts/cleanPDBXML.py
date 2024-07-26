@@ -121,6 +121,7 @@ def fix_class_inheritance(root: ET.Element) -> None:
                 or name_attr in ["", "enum_type", "element_type", "value_type"]
                 or datatype_attr in ["double", "boolean", "float", "long", "char", "short", "byte", "int", "uint"]
                 or kind_attr != "Unknown"
+                or (member_index == 0 and offset != 0) # first inheritance must be at 0
                 or (offset_attr == "0x0" and length_attr == "0x0")
             ):
                 stop_processing = True
