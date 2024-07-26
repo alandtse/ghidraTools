@@ -94,7 +94,7 @@ def fix_class_inheritance(root: ET.Element) -> None:
         root (ET.Element): The root element of the XML tree.
     """
     for class_node in root.iter("class"):
-        seen_non_unknown = False
+        stop_processing = False
         total_length = 0
         member_index = 0
         for member in class_node.findall("member"):
@@ -114,14 +114,22 @@ def fix_class_inheritance(root: ET.Element) -> None:
             else:
                 length = 0
 
+            
             if (
+                datatype_attr.endswith("*") # no pointers
+                or not name_attr
+                or name_attr in ["", "enum_type", "element_type"]
+                or kind_attr != "Unknown"
+                or (offset_attr == "0x0" and length_attr == "0x0")
+            ):
+                stop_processing = True
+                break
+            elif (
                 name_attr
                 and not name_attr.startswith("std")
-                and not name_attr == "enum_type"
-                and not datatype_attr.endswith("*")
                 and kind_attr == "Unknown"
                 and length_attr
-                and not seen_non_unknown
+                and not stop_processing
             ):
                 if member_index and offset == 0:
                     # offsets need to be increasing if we're handling inheritance
@@ -139,13 +147,6 @@ def fix_class_inheritance(root: ET.Element) -> None:
                 member.set("kind", "Member")
                 total_length = offset + length
                 member_index += 1
-            elif (
-                datatype_attr == "void *"
-                or kind_attr != "Unknown"
-                or (offset_attr == "0x0" and length_attr == "0x0")
-            ):
-                seen_non_unknown = True
-
 
 def fix_enumeration(xml_content: str) -> str:
     """
