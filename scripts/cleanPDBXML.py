@@ -118,7 +118,7 @@ def fix_class_inheritance(root: ET.Element) -> None:
             if (
                 datatype_attr.endswith("*") # no pointers
                 or not name_attr
-                or name_attr in ["", "enum_type", "element_type"]
+                or name_attr in ["", "enum_type", "element_type", "value_type"]
                 or datatype_attr in ["double", "boolean", "float", "long", "char", "short", "byte", "int", "uint"]
                 or kind_attr != "Unknown"
                 or (offset_attr == "0x0" and length_attr == "0x0")
