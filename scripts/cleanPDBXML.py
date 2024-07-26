@@ -437,7 +437,7 @@ def main():
         ),
         # template pointers
         (  # BSTSmartPointer since no way for Ghidra to know it's a pointer and it fails `checkAncestry``
-            r'datatype="BSTSmartPointer&lt;([\w:,&;]+)(?:,BSTSmartPointerIntrusiveRefCount)?&gt;"',
+            r'datatype="BSTSmartPointer&lt;([\w:&;]+)(?:,BSTSmartPointerIntrusiveRefCount)?&gt;"',
             r'datatype="\1*"',
         ),
         (  # GPtr, hkRefPtr since no way for Ghidra to know it's a pointer and it fails `checkAncestry``
