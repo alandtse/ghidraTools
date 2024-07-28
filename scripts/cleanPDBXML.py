@@ -93,6 +93,8 @@ def fix_class_inheritance(root: ET.Element) -> None:
     Args:
         root (ET.Element): The root element of the XML tree.
     """
+    inheritance_fixes_count = 0
+
     for class_node in root.iter("class"):
         stop_processing = False
         total_length = 0
@@ -114,14 +116,24 @@ def fix_class_inheritance(root: ET.Element) -> None:
             else:
                 length = 0
 
-            
             if (
-                datatype_attr.endswith("*") # no pointers
+                datatype_attr.endswith("*")  # no pointers
                 or not name_attr
                 or name_attr in ["", "enum_type", "element_type", "value_type"]
-                or datatype_attr in ["double", "boolean", "float", "long", "char", "short", "byte", "int", "uint"]
+                or datatype_attr
+                in [
+                    "double",
+                    "boolean",
+                    "float",
+                    "long",
+                    "char",
+                    "short",
+                    "byte",
+                    "int",
+                    "uint",
+                ]
                 or kind_attr != "Unknown"
-                or (member_index == 0 and offset != 0) # first inheritance must be at 0
+                or (member_index == 0 and offset != 0)  # first inheritance must be at 0
                 or (offset_attr == "0x0" and length_attr == "0x0")
             ):
                 stop_processing = True
@@ -147,71 +159,187 @@ def fix_class_inheritance(root: ET.Element) -> None:
                 #     break
 
                 member.set("kind", "Member")
+                inheritance_fixes_count += 1
                 total_length = offset + length
                 member_index += 1
 
-def fix_enumeration(xml_content: str) -> str:
+    print(f"Inheritance Fixes Applied: {inheritance_fixes_count}")
+
+
+def fix_enumeration_and_enum_sizes(root: ET.Element) -> None:
     """
-    Update the stl:enumeration datatype length in the XML content.
+    Fix enumeration definitions and replace integer types with enum types in classes and structures.
 
     Args:
-        xml_content (str): The XML content as a string.
+        root (ET.Element): The root element of the XML tree.
 
-    Returns:
-        str: The updated XML content as a string.
-
+    Doctest:
     >>> xml_content = '''
-    ... <class name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" length="0x8">
-    ...     <member name="enum_type" datatype="int" offset="0x0" kind="Unknown" length="0x4" />
-    ...     <member name="underlying_type" datatype="__uint64" offset="0x0" kind="Unknown" length="0x8" />
-    ...     <member name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
-    ...     <member name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
-    ...     <member name="operator bool" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
-    ...     <member name="operator*" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
-    ...     <member name="get" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
-    ...     <member name="underlying" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
-    ...     <member name="_impl" datatype="__uint64" offset="0x0" kind="Member" length="0x0" />
-    ... </class>
+    ... <root>
+    ...     <class name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" length="0x8">
+    ...         <member name="enum_type" datatype="int" offset="0x0" kind="Unknown" length="0x4" />
+    ...         <member name="underlying_type" datatype="__uint64" offset="0x0" kind="Unknown" length="0x8" />
+    ...         <member name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" datatype="void *"
+    ... offset="0x0" kind="Unknown" length="0x0" />
+    ...         <member name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" datatype="void *"
+    ... offset="0x0" kind="Unknown" length="0x0" />
+    ...         <member name="operator bool" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+    ...         <member name="operator*" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+    ...         <member name="get" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+    ...         <member name="underlying" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+    ...         <member name="_impl" datatype="__uint64" offset="0x0" kind="Member" length="0x8" />
+    ...     </class>
+    ...     <enum name="HeapType" length="0x8" datatype="unsigned __int64">
+    ...         <element name="DEFAULT" value="0" />
+    ...         <element name="CUSTOM" value="1" />
+    ...     </enum>
+    ... </root>
     ... '''
-    >>> updated_xml = fix_enumeration(xml_content)
-    >>> print(updated_xml)
-    <class name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" length="0x8">
-        <member name="enum_type" datatype="int" offset="0x0" kind="Unknown" length="0x4" />
-        <member name="underlying_type" datatype="__uint64" offset="0x0" kind="Unknown" length="0x8" />
-        <member name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
-        <member name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
-        <member name="operator bool" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
-        <member name="operator*" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
-        <member name="get" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
-        <member name="underlying" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
-        <member name="_impl" datatype="GString::HeapType" offset="0x0" kind="Member" length="0x8" />
-    </class>
+    >>> root = ET.fromstring(xml_content)
+    >>> fix_enumeration_and_enum_sizes(root)
+    Updated Enums Count: 1
+    Added Enums Count: 0
+    Member Enum Fixes Count: 1
+    >>> ET.dump(root)
+    <root>
+        <class name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" length="0x8">
+            <member name="enum_type" datatype="int" offset="0x0" kind="Unknown" length="0x4" />
+            <member name="underlying_type" datatype="__uint64" offset="0x0" kind="Unknown" length="0x8" />
+            <member name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" datatype="void *"
+            offset="0x0" kind="Unknown" length="0x0" />
+            <member name="enumeration&lt;enum GString::HeapType,unsigned __int64&gt;" datatype="void *"
+            offset="0x0" kind="Unknown" length="0x0" />
+            <member name="operator bool" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+            <member name="operator*" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+            <member name="get" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+            <member name="underlying" datatype="void *" offset="0x0" kind="Unknown" length="0x0" />
+            <member name="_impl" datatype="HeapType" offset="0x0" kind="Member" length="0x8" />
+        </class>
+        <enum name="HeapType" length="0x8" datatype="unsigned __int64">
+            <element name="DEFAULT" value="0" />
+            <element name="CUSTOM" value="1" />
+        </enum>
+    </root>
     """
-    tree = ET.ElementTree(ET.fromstring(xml_content))
-    root = tree.getroot()
 
-    # Iterate through all 'class' elements to find 'enumeration' tags
+    updated_enums_count = 0
+    added_enums_count = 0
+    member_enum_fixes_count = 0
+
+    # Map to store existing enums by name and length
+    enum_map = {}
+
+    # Find the parent node for enums
+    enums_parent = root.find(".//enums") or root
+
+    for enum_elem in root.findall(".//enum"):
+        enum_name = enum_elem.get("name")
+        enum_type = enum_elem.get("datatype")
+        enum_length = int(enum_elem.get("length"), 16)
+        if enum_name:
+            enum_map[(enum_name, enum_length)] = enum_elem
+
+    # Map for the shortened version of datatypes
+    short_type_map = {
+        "unsigned char": "uchar",
+        "unsigned short": "ushort",
+        "unsigned int": "uint",
+        "unsigned long long": "ulonglong",
+    }
+
+    size_map = {
+        "uchar": 1,
+        "ushort": 2,
+        "uint": 4,
+        "ulonglong": 8,
+    }
+
+    # Fix enum size mismatches in class members and iterate through all 'class' elements
     for class_elem in root.findall(".//class"):
         class_name = class_elem.get("name")
-        if class_name and class_name.startswith("enumeration"):
-            # Extract the enum type and length
-            parts = class_name.split(",")
-            if len(parts) == 2:
-                enum_type = parts[0].split("<enum ")[1].strip()
-                length = class_elem.get("length")
-                length_value = int(length, 16)  # Convert length from hex to decimal
+        for member in class_elem.findall("member"):
+            datatype = member.get("datatype")
+            if datatype and datatype.startswith("enumeration<enum "):
+                original_wrapper_name = datatype
+                enum_name_and_size = datatype.split("<enum ")[1].split(">")[0]
+                if "," in enum_name_and_size:
+                    enum_name, enum_size = enum_name_and_size.rsplit(",", 1)
+                    enum_name = enum_name.strip()
+                    enum_size = enum_size.strip()
 
-                # Find the '_impl' member
-                for member in class_elem.findall("member"):
-                    if member.get("name") == "_impl":
-                        member.set("datatype", enum_type)
-                        member.set(
-                            "length", f"0x{length_value:X}"
-                        )  # Convert length back to hex
-                        break
+                    # Convert enum_size to integer
+                    enum_length = size_map.get(short_type_map.get(enum_size, enum_size))
 
-    # Convert tree back to string
-    return ET.tostring(root, encoding="unicode")
+                    if enum_length and (enum_name, enum_length) not in enum_map:
+                        # Find the original enum with the same name but different size
+                        original_enum_key = next(
+                            (key for key in enum_map if key[0] == enum_name), None
+                        )
+                        if original_enum_key:
+                            original_enum = enum_map[original_enum_key]
+                            # Create a new enum of the appropriate size and same values
+                            new_enum = ET.Element("enum")
+                            new_enum.set("name", f"{enum_name}_{enum_length}")
+                            new_enum.set(
+                                "datatype", short_type_map.get(enum_size, enum_size)
+                            )
+                            new_enum.set("length", f"0x{enum_length:X}")
+                            for value in original_enum:
+                                new_enum.append(value)
+
+                            # Append the new enum to the enums parent node
+                            enums_parent.append(new_enum)
+                            enum_map[(enum_name, enum_length)] = new_enum
+                            added_enums_count += 1
+
+                            # Correct the use in the class member
+                            member.set("datatype", f"{enum_name}_{enum_length}")
+                            member.set("length", f"0x{enum_length:X}")
+                            member_enum_fixes_count += 1
+
+                            # Update the _impl member in the wrapper class
+                            wrapper_xpath = f".//class[@name='{original_wrapper_name}']"
+                            original_wrapper = root.find(wrapper_xpath)
+                            if original_wrapper is not None:
+                                for wrapper_member in original_wrapper.findall(
+                                    "member"
+                                ):
+                                    if wrapper_member.get("name") == "_impl":
+                                        wrapper_member.set(
+                                            "datatype", f"{enum_name}_{enum_length}"
+                                        )
+                                        wrapper_member.set(
+                                            "length", f"0x{enum_length:X}"
+                                        )
+                                        updated_enums_count += 1
+                                        break
+
+                    # Ensure the 'impl' member is updated to use the correct enum even if no new enum was created
+                    else:
+                        wrapper_xpath = f".//class[@name='{original_wrapper_name}']"
+                        original_wrapper = root.find(wrapper_xpath)
+                        if original_wrapper is not None:
+                            for wrapper_member in original_wrapper.findall("member"):
+                                if wrapper_member.get("name") == "_impl":
+                                    enum_length = next(
+                                        (
+                                            length
+                                            for name, length in enum_map.keys()
+                                            if name == enum_name
+                                        ),
+                                        None,
+                                    )
+                                    wrapper_member.set("datatype", f"{enum_name}")
+                                    wrapper_member.set(
+                                        "length",
+                                        f"0x{enum_length:X}" if enum_length else "0x0",
+                                    )
+                                    updated_enums_count += 1
+                                    break
+
+    print(f"Updated Enums Count: {updated_enums_count}")
+    print(f"Added Enums Count: {added_enums_count}")
+    print(f"Member Enum Fixes Count: {member_enum_fixes_count}")
 
 
 def parse_and_modify_xml(xml_data: str, delete_patterns: Dict[str, List[str]]) -> str:
@@ -267,6 +395,9 @@ def parse_and_modify_xml(xml_data: str, delete_patterns: Dict[str, List[str]]) -
 
     # Remove duplicate nodes
     remove_duplicate_nodes(root)
+
+    # Fix enumerations and enum size mismatches
+    fix_enumeration_and_enum_sizes(root)
 
     # Convert the modified XML tree back to a string
     modified_xml_data = ET.tostring(root, encoding="unicode")
@@ -476,15 +607,14 @@ def main():
     # Parse and modify the cleaned XML
     modified_xml_data = parse_and_modify_xml(cleaned_data, delete_patterns)
 
-    # Fix enumerations
-    # modified_xml_data = fix_enumeration(modified_xml_data)
-
     # Retain only the related nodes if keep_only is specified
     if args.keep_only:
         modified_xml_data = retain_only_related_nodes(modified_xml_data, args.keep_only)
 
     # Write the modified XML data to the output file or replace in place
     if args.output_file:
+        if not args.output_file.endswith(".pdb.xml"):
+            args.output_file += ".pdb.xml"
         with open(args.output_file, "w", encoding="utf-8") as file:
             file.write(modified_xml_data)
         print(f"Modified XML data written to {args.output_file}")
