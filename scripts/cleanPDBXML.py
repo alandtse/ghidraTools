@@ -3,12 +3,401 @@ import re
 import argparse
 import xml.etree.ElementTree as ET
 from collections import deque
-from typing import List, Dict, Tuple, Set
+from typing import Any, List, Dict, Tuple, Set, Optional, Union
 
-# Global variable to store parent map
-parent_map: Dict[ET.Element, ET.Element] = {}
+node_addition_queue: deque[Tuple[ET.Element, ET.Element, int]] = deque()
+node_addition_stats: Dict[str, int] = {}
+processed_classes = set()
 
-# Helper Functions
+
+def process_node_additions(root: ET.Element) -> None:
+    """
+    Process and add nodes from the node addition queue to their respective parent nodes efficiently,
+    assuming each node addition is for a single parent node.
+
+    Args:
+        root (ET.Element): The root element of the XML tree.
+    """
+    # Cache for parent nodes to avoid redundant searches
+    global parent_node_cache
+
+    while node_addition_queue:
+        parent_node, child_node, index = node_addition_queue.popleft()
+
+        if index == -1:
+            parent_node.append(child_node)
+        else:
+            parent_node.insert(index, child_node)
+
+
+def prepass_symbols_table(symbols_node: ET.Element) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Prepass the symbols table to build a cache of potential classes with their vfuncs.
+
+    Args:
+        symbols_node (ET.Element): The XML element representing the symbols table.
+
+    Returns:
+        Dict[str, List[Dict[str, str]]]: A dictionary where keys are class names and values are lists of vfunc details.
+    """
+    symbol_cache = {}
+    last_class = ""
+    class_name = ""
+    for symbol in symbols_node.findall("symbol"):
+        symbol_name = symbol.get("name")
+        class_name_match = re.match(r"~([\w:]+)", symbol_name)
+        if class_name_match:
+            class_name = class_name_match.group(1)
+            last_class = class_name
+            if class_name not in symbol_cache:
+                symbol_cache[class_name] = []
+        if class_name and class_name == last_class:
+            if symbol.get("tag") == "Function" and symbol.get("undecorated"):
+                function_signature = symbol.get("undecorated")
+                function_details = get_function_details(function_signature, class_name)
+                if function_details["name"] and function_details["return_type"]:
+                    symbol_cache[class_name].append(
+                        {
+                            "name": symbol_name,
+                            "index": int(symbol.get("index"), 16),
+                            "details": function_details,
+                        }
+                    )
+            else:  # reset now that saw last vfunc
+                last_class = ""
+
+    return symbol_cache
+
+
+def process_class_vtables(
+    root: ET.Element,
+    class_node: ET.Element,
+    symbol_cache: Dict[str, List[Dict[str, str]]],
+) -> None:
+    """
+    Update the class vtable by replacing void* placeholders with function pointers.
+
+    Args:
+        root (ET.Element): The XML root.
+        class_node (ET.Element): The XML element representing the class.
+        symbol_cache (Dict[str, List[Dict[str, str]]]): The preprocessed symbol cache.
+    """
+    class_name = class_node.get("name")
+
+    # Check if this class has already been processed
+    if class_name in processed_classes:
+        return
+
+    datatype_name = f"{class_name}_vtable"
+    datatype_vtable_node = ET.Element(
+        "class", name=datatype_name, kind="Structure", length="0x0"
+    )
+    vtable_node = ET.Element(
+        "member",
+        name="vtable",
+        datatype=f"{datatype_name} *",
+        offset="0x0",
+        kind="Member",
+        length="0x8",
+    )
+    vtable_funcs = []
+
+    if class_name in symbol_cache:
+        in_class = False
+
+        for member in class_node.findall("member"):
+            name_attr = member.get("name")
+            datatype_attr = member.get("datatype")
+            kind_attr = member.get("kind")
+
+            if datatype_attr == "void *" and kind_attr == "Unknown":
+                in_class = True
+
+                for symbol in symbol_cache[class_name]:
+                    symbol_name = symbol["name"]
+                    function_details = symbol["details"]
+
+                    if symbol_name == name_attr:
+                        vtable_funcs.append(function_details)
+                        break
+
+                if not in_class:
+                    break
+            elif datatype_attr != "void *" and in_class:
+                break
+
+    class_node.insert(0, vtable_node)
+
+    # Replace placeholder with function definitions
+    for idx, func_detail in enumerate(vtable_funcs):
+        class_index = f"{class_node.get('name')}_vtable_{idx}"
+        function_def = create_function_definition(func_detail)
+
+        datatype_vtable_node.append(
+            ET.Element(
+                "member",
+                name=f"{function_def.get('name')}()",
+                datatype=f"{function_def.get('name')}*",
+                offset=f"0x{idx * 8:X}",
+                kind="Member",
+                comment=class_index,
+                length="0x8",
+            )
+        )
+        datatype_member_node = ET.Element(
+            "class", name=f"{function_def.get('name')}", kind="Structure", length="0x8"
+        )
+        root.find("classes").append(datatype_member_node)
+        datatype_vtable_node.set("length", f"0x{(idx + 1) * 8:X}")
+
+    # Attach datatype
+    root.find("classes").append(datatype_vtable_node)
+
+    # Mark this class as processed
+    processed_classes.add(class_name)
+
+
+def create_function_definition(func_details: dict) -> ET.Element:
+    """
+    Create a function definition XML element.
+
+    Args:
+        func_details (dict): A dictionary containing function details.
+
+    Returns:
+        ET.Element: The XML element representing the function definition.
+    """
+    func_def = ET.Element("function")
+    func_def.set("name", func_details["name"])
+    func_def.set("address", "0x0")
+    func_def.set("return_type", func_details["return_type"])
+    params_node = ET.SubElement(func_def, "parameters")
+    for param in func_details["parameters"]:
+        param_node = ET.SubElement(params_node, "parameter")
+        param_node.set("name", param[1])
+        param_node.set("type", param[0])
+    return func_def
+
+
+def convert_to_ghidra_type(param_type: str) -> str:
+    """
+    Convert common C++ types to Ghidra recognized types.
+
+    Args:
+        param_type (str): The C++ parameter type.
+
+    Returns:
+        str: The Ghidra recognized parameter type.
+    """
+    # Remove 'const' qualifiers
+    param_type = param_type.replace("const ", "").replace(" &", "*").replace("&", "*")
+
+    type_mappings = {
+        "unsigned __int64": "uint64",
+        "signed __int64": "int64",
+        "unsigned long long": "uint64",
+        "signed long long": "int64",
+        "unsigned long": "ulong",
+        "signed long": "long",
+        "unsigned int": "uint",
+        "signed int": "int",
+        "unsigned short": "ushort",
+        "signed short": "short",
+        "unsigned char": "uchar",
+        "signed char": "char",
+        "const char*": "char*",
+        "const char *": "char*",
+    }
+    for k, v in type_mappings.items():
+        param_type = param_type.replace(k, v)
+
+    return param_type
+
+
+def parse_function_parameters(param_string: str) -> List[Tuple[str, str]]:
+    """
+    Parse a parameter string and return a list of parameter type and name pairs.
+
+    Args:
+        param_string (str): The parameter string.
+
+    Returns:
+        List[Tuple[str, str]]: A list of tuples where each tuple contains the parameter type and name.
+    """
+    param_string = param_string.strip("()")
+    if not param_string:
+        return []
+
+    # Split parameters by comma while handling nested templates
+    param_list = split_parameters(param_string)
+    parameters = []
+
+    for i, param in enumerate(param_list):
+        param = param.strip()
+        if " " in param:
+            param_type, param_name = param.rsplit(" ", 1)
+        else:
+            param_type = param
+            param_name = f"a_{i+1}"  # Placeholder parameter name
+
+        # Handle common types conversion for Ghidra
+        param_type = convert_to_ghidra_type(param_type)
+
+        parameters.append((param_type, param_name))
+
+    return parameters
+
+
+def split_parameters(param_string: str) -> List[str]:
+    """
+    Split a parameter string into individual parameters, handling nested templates.
+
+    Args:
+        param_string (str): The parameter string.
+
+    Returns:
+        List[str]: A list of parameter strings.
+    """
+    params = []
+    nested_level = 0
+    current_param = []
+
+    for char in param_string:
+        if char == "<":
+            nested_level += 1
+        elif char == ">":
+            nested_level -= 1
+        elif char == "," and nested_level == 0:
+            params.append("".join(current_param).strip())
+            current_param = []
+            continue
+        current_param.append(char)
+
+    if current_param:
+        params.append("".join(current_param).strip())
+
+    return params
+
+
+def clean_signature(signature: str) -> str:
+    """
+    Clean up the function signature for easier parsing.
+
+    Args:
+        signature (str): The original function signature.
+
+    Returns:
+        str: The cleaned function signature.
+    """
+    # Convert known types to Ghidra-compatible types
+    signature = convert_to_ghidra_type(signature)
+
+    # Remove unnecessary spaces around pointers and references
+    signature = re.sub(r"\s*\*", "*", signature)
+    signature = re.sub(r"\s*&", "&", signature)
+
+    # Remove unnecessary spaces around end of templates
+    signature = re.sub(r">\s+>", ">>", signature)
+    signature = re.sub(r">\s+(?=>)", ">", signature)
+    signature = re.sub(r"\s+>", ">", signature)
+
+    # Remove unnecessary const qualifiers
+    signature = re.sub(r"\s*const\s*", "", signature)
+
+    # Remove redundant spaces around brackets, parentheses, and commas
+    signature = re.sub(r"\s*\[\s*", "[", signature)
+    signature = re.sub(r"\s*\]\s*", "]", signature)
+    signature = re.sub(r"\s*\(\s*", "(", signature)
+    signature = re.sub(r"\s*\)\s*", ")", signature)
+    signature = re.sub(r"\s*,\s*", ",", signature)
+
+    # Simplify multiple spaces into a single space
+    signature = re.sub(r"\s+", " ", signature).strip()
+
+    return signature
+
+
+def get_function_details(signature: str, class_name: str = "") -> Dict[str, Any]:
+    """
+    Parse a function signature and return its details.
+
+    Args:
+        signature (str): The function signature.
+
+    Returns:
+        Dict[str, Any]: A dictionary with the return type, function name, and parameters.
+    """
+    # Clean up the signature before parsing
+    signature = clean_signature(signature)
+
+    # Define patterns to identify and extract function details
+    operator_pattern = r"operator\s*(?:\(\)|\[\]|==|!=|<=|>=|<<|>>|\+\+|--|\+=|-=|\*=|/=|%=|&=|\|=|\^=|\+|-|\*|/|%|&|\||\^|~|!|<|>)"
+    function_name_regex = rf"({operator_pattern}|[\w\[\]:~<>,\(\)%^&/+=\|*-]+)"
+    return_type_pattern = rf"^(class|struct|enum)?\s*([\w:\*&\s<>*\]\[,]+?)\s+({function_name_regex})\s*\("
+    function_name_pattern = rf"({function_name_regex})\s*\("
+    param_string_pattern = r"\((.*)\)"
+
+    # Extract return type
+    return_type_match = re.search(return_type_pattern, signature)
+    if not return_type_match:
+        print(f"Warning: Invalid return signature format: {signature}")
+        return {
+            "return_type": "",
+            "name": "",
+            "parameters": [],
+            "signature": signature,
+        }
+    return_type = return_type_match.group(2).strip()
+    return_type = convert_to_ghidra_type(return_type)
+
+    # Extract function name
+    function_name_match = re.search(function_name_pattern, signature)
+    if not function_name_match:
+        print(f"Warning: Invalid function signature format: {signature}")
+        return {
+            "return_type": return_type,
+            "name": "",
+            "parameters": [],
+            "signature": signature,
+        }
+    function_name = function_name_match.group(1).strip()
+
+    # Extract parameter string
+    param_string_match = re.search(param_string_pattern, signature)
+    param_string = param_string_match.group(1) if param_string_match else ""
+
+    # Ensure param_string is always in parenthesis format
+    param_string = f"({param_string})"
+
+    # Parse the parameters
+    parameters = parse_function_parameters(param_string)
+
+    return {
+        "return_type": return_type,
+        "name": function_name,
+        "parameters": parameters,
+        "signature": signature,
+    }
+
+
+def add_xml_node(
+    parent_name: ET.Element, child_node: ET.Element, index: int = -1
+) -> None:
+    """
+    Queue a new child node addition under a specified parent node and collect statistics.
+
+    :param parent_name: The name of the parent node
+    :param child_node: The new child node to add
+    :param index: The index to insert the new child node at (-1 to append)
+    """
+    # Queue the node addition
+    node_addition_queue.append((parent_name, child_node, index))
+
+    # Collect statistics
+    if parent_name in node_addition_stats:
+        node_addition_stats[parent_name] += 1
+    else:
+        node_addition_stats[parent_name] = 1
 
 
 def stringify_node(node: ET.Element) -> str:
@@ -89,16 +478,21 @@ def fix_class_inheritance(root: ET.Element) -> None:
     """
     Fix class inheritance by updating 'member' nodes with 'Unknown' kind to 'Member' sequentially,
     stopping when a node with a different kind or both offset and length equal to '0x0' is encountered.
+    Also updates vtable placeholders with function definitions.
 
     Args:
         root (ET.Element): The root element of the XML tree.
     """
     inheritance_fixes_count = 0
+    symbols_node = root.find(".//table[@name='Symbols']")
+    symbol_cache = prepass_symbols_table(symbols_node)
 
     for class_node in root.iter("class"):
         stop_processing = False
-        total_length = 0
         member_index = 0
+        vtable_found = False
+        vtable_node = None  # Track the vtable node if found
+
         for member in class_node.findall("member"):
             name_attr = member.get("name")
             datatype_attr = member.get("datatype")
@@ -133,7 +527,9 @@ def fix_class_inheritance(root: ET.Element) -> None:
                     "uint",
                 ]
                 or kind_attr != "Unknown"
-                or (member_index == 0 and offset != 0)  # first inheritance must be at 0
+                or (
+                    member_index == 0 and offset not in [0, 8]
+                )  # first inheritance must be at 0 or 8 if vtable at 0
                 or (offset_attr == "0x0" and length_attr == "0x0")
             ):
                 stop_processing = True
@@ -151,17 +547,16 @@ def fix_class_inheritance(root: ET.Element) -> None:
                 if datatype_attr and datatype_attr == class_node.get("name"):
                     # classes cannot inherit from themselves
                     break
-                # disabling length check since offsets are not guaranteed to be in order
-                # if offset < total_length:
-                #     print(
-                #         f"Warning: {class_node.get("name")}::{stringify_node(member)} with offset {offset_attr} is less than expected total length {hex(total_length)}. Stopping conversion."
-                #     )
-                #     break
-
+                if member_index == 0 and offset == 8:  # detected a vtable member
+                    vtable_found = True
                 member.set("kind", "Member")
                 inheritance_fixes_count += 1
                 total_length = offset + length
                 member_index += 1
+
+        if vtable_found:
+            # Update the vtable with function definitions if not already done
+            process_class_vtables(root, class_node, symbol_cache)
 
     print(f"Inheritance Fixes Applied: {inheritance_fixes_count}")
 
@@ -230,8 +625,9 @@ def fix_enumeration_and_enum_sizes(root: ET.Element) -> None:
     enum_map = {}
 
     # Find the parent node for enums
-    enums_parent = root.find(".//enums") or root
-
+    enums_parent = root.find(".//enums")
+    if enums_parent is None:
+        enums_parent = root
     for enum_elem in root.findall(".//enum"):
         enum_name = enum_elem.get("name")
         enum_type = enum_elem.get("datatype")
@@ -288,7 +684,7 @@ def fix_enumeration_and_enum_sizes(root: ET.Element) -> None:
                                 new_enum.append(value)
 
                             # Append the new enum to the enums parent node
-                            enums_parent.append(new_enum)
+                            add_xml_node(root.find("enums"), new_enum)
                             enum_map[(enum_name, enum_length)] = new_enum
                             added_enums_count += 1
 
@@ -361,9 +757,26 @@ def parse_and_modify_xml(
     root = tree.getroot()
 
     # Create a parent map during traversal
-    global parent_map
     parent_map = {}
-    stack = deque([(root, None)])
+    nodes_to_remove = set()
+    total_nodes = 0
+    standard_removed_nodes = set()
+
+    # Combined iteration to clear <functions> and mark nodes for removal
+    for parent in root.iter():
+        for node in parent:
+            parent_map[node] = parent
+            total_nodes += 1
+            if node.tag == "functions":
+                node.clear()
+            elif node.tag in {"class", "symbol", "enum", "datatype", "typedef"}:
+                for key, delete_list in delete_patterns.items():
+                    name_attr = node.get(key)
+                    if name_attr and any(
+                        name_attr.startswith(pattern) for pattern in delete_list
+                    ):
+                        nodes_to_remove.add(node)
+                        standard_removed_nodes.add(node)
 
     # Apply keep_only filtering earlier for performance
     if keep_only_name:
@@ -373,11 +786,20 @@ def parse_and_modify_xml(
             all_related_nodes.update(related_nodes)
         nodes_to_remove.update(set(root.iter()) - all_related_nodes)
 
-    # Remove nodes in a separate step to avoid modifying the tree while iterating
+    # Remove marked nodes in a separate step to avoid modifying the tree while iterating
     for node in nodes_to_remove:
         parent = parent_map.get(node)
         if parent is not None and node in parent:
             parent.remove(node)
+
+    # Print stats
+    print(f"Total nodes: {total_nodes}")
+    print(
+        f"Removed nodes (standard cleaning): {len(standard_removed_nodes)} ({len(standard_removed_nodes)/total_nodes:.2%})"
+    )
+    print(
+        f"Removed nodes (keep_only): {len(nodes_to_remove) - len(standard_removed_nodes)} ({(len(nodes_to_remove) - len(standard_removed_nodes))/total_nodes:.2%})"
+    )
 
     # Fix class inheritance by modifying 'member' nodes
     fix_class_inheritance(root)
@@ -387,6 +809,9 @@ def parse_and_modify_xml(
 
     # Fix enumerations and enum size mismatches
     fix_enumeration_and_enum_sizes(root)
+
+    # Process the queued node additions
+    process_node_additions(root)
 
     # Convert the modified XML tree back to a string
     modified_xml_data = ET.tostring(root, encoding="unicode")
@@ -575,6 +1000,10 @@ def main():
         (  # NiPointer since no way for Ghidra to know it's a pointer and it fails `checkAncestry``
             r'datatype="NiPointer&lt;([\w:,&;]+)&gt;"',
             r'datatype="\1*"',
+        ),
+        (  # Remove empty nodes
+            r'<member name="" datatype="Undefined" offset="0x0" kind="Unknown" length="0x0" />',
+            r"",
         ),
     ]
 
