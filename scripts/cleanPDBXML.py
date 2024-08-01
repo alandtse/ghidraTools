@@ -342,7 +342,9 @@ def fix_enumeration_and_enum_sizes(root: ET.Element) -> None:
     print(f"Member Enum Fixes Count: {member_enum_fixes_count}")
 
 
-def parse_and_modify_xml(xml_data: str, delete_patterns: Dict[str, List[str]]) -> str:
+def parse_and_modify_xml(
+    xml_data: str, delete_patterns: Dict[str, List[str]], keep_only_name: List[str]
+) -> str:
     """
     Parse the XML data, find the <functions> node and clear all its child nodes,
     and delete <class>, <symbol>, <enum>, or <datatype> nodes where the name starts with certain strings.
@@ -350,6 +352,7 @@ def parse_and_modify_xml(xml_data: str, delete_patterns: Dict[str, List[str]]) -
     Args:
         xml_data (str): The cleaned XML data as a string.
         delete_patterns (Dict[str, List[str]]): Dict of prefixes to identify nodes to be deleted.
+        keep_only_name (List[str]): The list of names of the classes or datatypes to keep.
 
     Returns:
         str: The modified XML data as a string.
@@ -362,27 +365,13 @@ def parse_and_modify_xml(xml_data: str, delete_patterns: Dict[str, List[str]]) -
     parent_map = {}
     stack = deque([(root, None)])
 
-    while stack:
-        node, parent = stack.pop()
-        parent_map[node] = parent
-        for child in node:
-            stack.append((child, node))
-
-    nodes_to_remove = []
-
-    for node in root.iter():
-        # Clear all child nodes of <functions>
-        if node.tag == "functions":
-            node.clear()
-
-        # Check for nodes to remove
-        if node.tag in {"class", "symbol", "enum", "datatype", "typedef"}:
-            for key, delete_list in delete_patterns.items():
-                name_attr = node.get(key)
-                if name_attr and any(
-                    name_attr.startswith(pattern) for pattern in delete_list
-                ):
-                    nodes_to_remove.append(node)
+    # Apply keep_only filtering earlier for performance
+    if keep_only_name:
+        all_related_nodes = set()
+        for name in keep_only_name:
+            related_nodes = collect_related_nodes(root, name)
+            all_related_nodes.update(related_nodes)
+        nodes_to_remove.update(set(root.iter()) - all_related_nodes)
 
     # Remove nodes in a separate step to avoid modifying the tree while iterating
     for node in nodes_to_remove:
@@ -498,20 +487,21 @@ def retain_only_related_nodes(xml_data: str, keep_only_name: str) -> str:
     """
     tree = ET.ElementTree(ET.fromstring(xml_data))
     root = tree.getroot()
-    global parent_map
+
+    # Create a parent map during traversal
+    parent_map = {}
+    for parent in root.iter():
+        for node in parent:
+            parent_map[node] = parent
 
     related_nodes = collect_related_nodes(root, keep_only_name)
 
-    stack = deque([root])
-    while stack:
-        node = stack.pop()
+    # Remove nodes that are not related to the specified class or datatype name
+    for node in list(root.iter()):
         if node not in related_nodes:
             parent = parent_map.get(node)
             if parent is not None and node in parent:
                 parent.remove(node)
-        else:
-            for child in node.findall(".//*"):
-                stack.append(child)
 
     modified_xml_data = ET.tostring(root, encoding="unicode")
     return modified_xml_data
@@ -528,7 +518,13 @@ def main():
         "--output_file",
         help="The path to the output XML file. If not specified, the input file will be replaced.",
     )
-    parser.add_argument("--keep_only", help="Name of the class or datatype to keep.")
+    parser.add_argument(
+        "--keep_only",
+        nargs="*",  # 0 or more values expected => creates a list
+        type=str,
+        default=[],  # default if nothing is provide
+        help="List of names of the classes or datatypes to keep.",
+    )
 
     args = parser.parse_args()
 
@@ -605,11 +601,9 @@ def main():
     cleaned_data = clean_xml(data, patterns, replace_patterns)
 
     # Parse and modify the cleaned XML
-    modified_xml_data = parse_and_modify_xml(cleaned_data, delete_patterns)
-
-    # Retain only the related nodes if keep_only is specified
-    if args.keep_only:
-        modified_xml_data = retain_only_related_nodes(modified_xml_data, args.keep_only)
+    modified_xml_data = parse_and_modify_xml(
+        cleaned_data, delete_patterns, args.keep_only
+    )
 
     # Write the modified XML data to the output file or replace in place
     if args.output_file:
