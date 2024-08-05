@@ -778,6 +778,9 @@ def parse_and_modify_xml(
                         nodes_to_remove.add(node)
                         standard_removed_nodes.add(node)
 
+    # Remove duplicate nodes
+    remove_duplicate_nodes(root)
+
     # Apply keep_only filtering earlier for performance
     if keep_only_name:
         all_related_nodes = set()
@@ -803,9 +806,6 @@ def parse_and_modify_xml(
 
     # Fix class inheritance by modifying 'member' nodes
     fix_class_inheritance(root)
-
-    # Remove duplicate nodes
-    remove_duplicate_nodes(root)
 
     # Fix enumerations and enum size mismatches
     fix_enumeration_and_enum_sizes(root)
