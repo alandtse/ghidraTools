@@ -377,7 +377,7 @@ def get_function_details(signature: str, class_name: str = "") -> Dict[str, Any]
 
     return {
         "return_type": return_type,
-        "name": function_name,
+        "name": f"{class_name}::{function_name}" if class_name else function_name,
         "parameters": parameters,
         "signature": signature,
     }
