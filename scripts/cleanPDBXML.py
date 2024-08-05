@@ -73,6 +73,7 @@ def process_class_vtables(
     root: ET.Element,
     class_node: ET.Element,
     symbol_cache: Dict[str, List[Dict[str, str]]],
+    insert_vtable: bool = False
 ) -> None:
     """
     Update the class vtable by replacing void* placeholders with function pointers.
@@ -81,6 +82,7 @@ def process_class_vtables(
         root (ET.Element): The XML root.
         class_node (ET.Element): The XML element representing the class.
         symbol_cache (Dict[str, List[Dict[str, str]]]): The preprocessed symbol cache.
+        insert_vtable (bool): Whether the vtable should be inserted at the front of the class.
     """
     class_name = class_node.get("name")
 
@@ -88,7 +90,7 @@ def process_class_vtables(
     if class_name in processed_classes:
         return
 
-    datatype_name = f"{class_name}_vtable"
+    datatype_name = f"{class_name}_vftable"
     datatype_vtable_node = ET.Element(
         "class", name=datatype_name, kind="Structure", length="0x0"
     )
@@ -126,7 +128,8 @@ def process_class_vtables(
             elif datatype_attr != "void *" and in_class:
                 break
 
-    class_node.insert(0, vtable_node)
+    if insert_vtable:
+        class_node.insert(0, vtable_node)
 
     # Replace placeholder with function definitions
     for idx, func_detail in enumerate(vtable_funcs):
@@ -486,7 +489,7 @@ def fix_class_inheritance(root: ET.Element) -> None:
     inheritance_fixes_count = 0
     symbols_node = root.find(".//table[@name='Symbols']")
     symbol_cache = prepass_symbols_table(symbols_node)
-
+    class_nodes_with_vtables = []
     for class_node in root.iter("class"):
         stop_processing = False
         member_index = 0
@@ -553,10 +556,16 @@ def fix_class_inheritance(root: ET.Element) -> None:
                 inheritance_fixes_count += 1
                 total_length = offset + length
                 member_index += 1
+        if member_index == 0 and int(class_node.get("length"), 16) == 8:
+            # no inheritance, needs vtable
+            vtable_found = True
+        if vtable_found or int(class_node.get("length"), 16) >= 8:
+            # If vtable is confirmed or class big enough to need vtable, check vtable
+            class_nodes_with_vtables.append((class_node, vtable_found))
+    for class_node, vtable_found in class_nodes_with_vtables:
+        print(f"Fixing vtables for : {class_node.get('name')}")
 
-        if vtable_found:
-            # Update the vtable with function definitions if not already done
-            process_class_vtables(root, class_node, symbol_cache)
+        process_class_vtables(root, class_node, symbol_cache, vtable_found)
 
     print(f"Inheritance Fixes Applied: {inheritance_fixes_count}")
 
