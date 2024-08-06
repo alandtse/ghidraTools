@@ -90,13 +90,13 @@ def process_class_vtables(
     if class_name in processed_classes:
         return
 
-    datatype_name = f"{class_name}_vftable"
+    datatype_name = f"{class_name}::vftable"
     datatype_vtable_node = ET.Element(
         "class", name=datatype_name, kind="Structure", length="0x0"
     )
     vtable_node = ET.Element(
         "member",
-        name="vtable",
+        name="vftable",
         datatype=f"{datatype_name} *",
         offset="0x0",
         kind="Member",
