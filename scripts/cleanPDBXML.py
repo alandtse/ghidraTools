@@ -334,7 +334,7 @@ def get_function_details(signature: str, class_name: str = "") -> Dict[str, Any]
     signature = clean_signature(signature)
 
     # Define patterns to identify and extract function details
-    operator_pattern = r"operator\s*(?:\(\)|\[\]|==|!=|<=|>=|<<|>>|\+\+|--|\+=|-=|\*=|/=|%=|&=|\|=|\^=|\+|-|\*|/|%|&|\||\^|~|!|<|>)"
+    operator_pattern = r"((operator\s*(?:\(\)|\[\]|==|!=|<=|>=|<<|>>|\+\+|--|\+=|-=|\*=|/=|%=|&=|\|=|\^=|\+|-|\*|/|%|&|\||\^|~|!|new[?]?|delete[?]?|<|>)|[\w\[\]:~<>,\(\)%^&/+=\|*-]+))\s*\("
     function_name_regex = rf"({operator_pattern}|[\w\[\]:~<>,\(\)%^&/+=\|*-]+)"
     return_type_pattern = rf"^(class|struct|enum)?\s*([\w:\*&\s<>*\]\[,]+?)\s+({function_name_regex})\s*\("
     function_name_pattern = rf"({function_name_regex})\s*\("
