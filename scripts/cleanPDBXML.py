@@ -155,8 +155,15 @@ def process_class_vtables(
         root.find("classes").append(datatype_member_node)
         datatype_vtable_node.set("length", f"0x{(idx + 1) * 8:X}")
 
+    length_attr = datatype_vtable_node.get("length")
+
+    if length_attr is not None:
+        length = int(length_attr, 16)
+    else:
+        length = 0
     # Attach datatype
-    root.find("classes").append(datatype_vtable_node)
+    if length > 0:
+        root.find("classes").append(datatype_vtable_node)
 
     # Mark this class as processed
     processed_classes.add(class_name)
@@ -567,7 +574,7 @@ def fix_class_inheritance(root: ET.Element) -> None:
     for class_node, vtable_found in class_nodes_with_vtables:
         print(f"Fixing vtables for : {class_node.get('name')}")
 
-        process_class_vtables(root, class_node, symbol_cache, vtable_found)
+        process_class_vtables(root, class_node, symbol_cache, False)
 
     print(f"Inheritance Fixes Applied: {inheritance_fixes_count}")
 
