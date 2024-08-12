@@ -486,7 +486,7 @@ def clean_xml(
     return data
 
 
-def fix_class_inheritance(root: ET.Element) -> None:
+def fix_class_inheritance(root: ET.Element, add_parents: bool = False) -> None:
     """
     Fix class inheritance by updating 'member' nodes with 'Unknown' kind to 'Member' sequentially,
     stopping when a node with a different kind or both offset and length equal to '0x0' is encountered.
@@ -494,6 +494,7 @@ def fix_class_inheritance(root: ET.Element) -> None:
 
     Args:
         root (ET.Element): The root element of the XML tree.
+        add_parents (bool): Whether to add parents to a class. Not needed for RecoverClassesFromRTTIScript.java
     """
     inheritance_fixes_count = 0
     symbols_node = root.find(".//table[@name='Symbols']")
@@ -547,7 +548,8 @@ def fix_class_inheritance(root: ET.Element) -> None:
                 stop_processing = True
                 break
             elif (
-                name_attr
+                add_parents
+                and name_attr
                 and not name_attr.startswith("std")
                 and kind_attr == "Unknown"
                 and length_attr
