@@ -743,15 +743,7 @@ def fix_enumeration_and_enum_sizes(root: ET.Element) -> None:
                         if original_wrapper is not None:
                             for wrapper_member in original_wrapper.findall("member"):
                                 if wrapper_member.get("name") == "_impl":
-                                    enum_length = next(
-                                        (
-                                            length
-                                            for name, length in enum_map.keys()
-                                            if name == enum_name
-                                        ),
-                                        None,
-                                    )
-                                    wrapper_member.set("datatype", f"{enum_name}")
+                                    wrapper_member.set("datatype", f"{enum_name}_{enum_length}")
                                     wrapper_member.set(
                                         "length",
                                         f"0x{enum_length:X}" if enum_length else "0x0",
