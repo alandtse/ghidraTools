@@ -660,10 +660,12 @@ def fix_enumeration_and_enum_sizes(root: ET.Element) -> None:
         "unsigned char": "uchar",
         "unsigned short": "ushort",
         "unsigned int": "uint",
+        "unsigned __int64": "ulonglong",
         "unsigned long long": "ulonglong",
         "signed char": "char",
         "signed short": "short",
         "signed int": "int",
+        "signed __int64": "longlong",
         "signed long long": "longlong",
     }
 
@@ -675,7 +677,7 @@ def fix_enumeration_and_enum_sizes(root: ET.Element) -> None:
         "char": 1,
         "short": 2,
         "int": 4,
-        "ulonglong": 8,
+        "longlong": 8,
     }
 
     # Fix enum size mismatches in class members and iterate through all 'class' elements
@@ -745,7 +747,7 @@ def fix_enumeration_and_enum_sizes(root: ET.Element) -> None:
                         if original_wrapper is not None:
                             for wrapper_member in original_wrapper.findall("member"):
                                 if wrapper_member.get("name") == "_impl":
-                                    wrapper_member.set("datatype", f"{enum_name}_{enum_length}")
+                                    wrapper_member.set("datatype", f"{enum_name}_{enum_length}" if enum_length not in [4,8] else f"{enum_name}")
                                     wrapper_member.set(
                                         "length",
                                         f"0x{enum_length:X}" if enum_length else "0x0",
