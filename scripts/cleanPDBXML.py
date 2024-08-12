@@ -136,11 +136,13 @@ def process_class_vtables(
         class_index = f"{class_node.get('name')}_vtable_{idx}"
         function_def = create_function_definition(func_detail)
 
+        # ghidra does not like datatypes with [] endings
+        fixed_function_name = f"{function_def.get('name')[:-2]}__" if function_def.get('name').endswith("]") else function_def.get('name')
         datatype_vtable_node.append(
             ET.Element(
                 "member",
                 name=f"{function_def.get('name')}()",
-                datatype=f"{function_def.get('name')}*",
+                datatype=f"{fixed_function_name}*",
                 offset=f"0x{idx * 8:X}",
                 kind="Member",
                 comment=class_index,
@@ -148,7 +150,7 @@ def process_class_vtables(
             )
         )
         datatype_member_node = ET.Element(
-            "class", name=f"{function_def.get('name')}", kind="Structure", length="0x8"
+            "class", name=f"{fixed_function_name}", kind="Structure", length="0x8"
         )
         root.find("classes").append(datatype_member_node)
         datatype_vtable_node.set("length", f"0x{(idx + 1) * 8:X}")
