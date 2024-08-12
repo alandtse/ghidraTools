@@ -659,12 +659,20 @@ def fix_enumeration_and_enum_sizes(root: ET.Element) -> None:
         "unsigned short": "ushort",
         "unsigned int": "uint",
         "unsigned long long": "ulonglong",
+        "signed char": "char",
+        "signed short": "short",
+        "signed int": "int",
+        "signed long long": "longlong",
     }
 
     size_map = {
         "uchar": 1,
         "ushort": 2,
         "uint": 4,
+        "ulonglong": 8,
+        "char": 1,
+        "short": 2,
+        "int": 4,
         "ulonglong": 8,
     }
 
