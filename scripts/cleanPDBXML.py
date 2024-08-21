@@ -827,7 +827,7 @@ def parse_and_modify_xml(
     )
 
     # Fix class inheritance by modifying 'member' nodes
-    fix_class_inheritance(root)
+    # fix_class_inheritance(root)
 
     # Fix enumerations and enum size mismatches
     fix_enumeration_and_enum_sizes(root)
