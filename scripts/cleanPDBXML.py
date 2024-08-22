@@ -1,9 +1,13 @@
 # based on GPL3 code https://github.com/Starfield-Reverse-Engineering/CommonLibSF/pull/221/files by @nikitalita
 import re
 import argparse
+import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from collections import deque
 from typing import Any, List, Dict, Tuple, Set, Optional, Union
+from subprocess import check_output
+import os.path
 
 node_addition_queue: deque[Tuple[ET.Element, ET.Element, int]] = deque()
 node_addition_stats: Dict[str, int] = {}
@@ -972,12 +976,33 @@ def main():
         default=[],  # default if nothing is provide
         help="List of names of the classes or datatypes to keep.",
     )
+    parser.add_argument(
+        "-g",
+        "--ghidra",
+        help="The path to ghidra installation",
+    )
 
     args = parser.parse_args()
 
-    # Read the large XML file
-    with open(args.input_file, "r", encoding="utf-8") as file:
-        data = file.read()
+    data = ''
+    if args.input_file.lower().endswith('.xml'):
+        # Read the large XML file
+        with open(args.input_file, "r", encoding="utf-8") as file:
+            data = file.read()
+    elif args.input_file.lower().endswith('.pdb'):
+        if not args.ghidra:
+            print('Ghidra installation not found', file=sys.stderr)
+            sys.exit(1)
+        if not args.output_file:
+            print('Please specify the output file path', file=sys.stderr)
+            sys.exit(1)
+
+        pdb_exe = os.path.join(args.ghidra, "Ghidra/Features/PDB/os/win_x86_64/pdb.exe")
+        try:
+            data = subprocess.check_output([pdb_exe,args.input_file], universal_newlines=True)
+        except (FileNotFoundError, subprocess.CalledProcessError) as e:
+            print('Failed to launch pdb.exe (%s)' % str(e) , file=sys.stderr)
+            sys.exit(1)
 
     # List of patterns to remove (only regular versions)
     patterns = [
@@ -1063,10 +1088,13 @@ def main():
         with open(args.output_file, "w", encoding="utf-8") as file:
             file.write(modified_xml_data)
         print(f"Modified XML data written to {args.output_file}")
-    else:
+    elif args.input_file.lower().endswith('.xml'):
         with open(args.input_file, "w", encoding="utf-8") as file:
             file.write(modified_xml_data)
         print(f"Modified XML data replaced in {args.input_file}")
+    else:
+        print('Error creating output', file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
