@@ -122,7 +122,7 @@ public class RecoverRttiVtablesScript extends GhidraScript {
 			for (int i = 0; i < group.size(); i++) {
 				Vtbl v = group.get(i);
 				String label = "VTABLE_" + readable + (i == 0 ? "" : "_" + (i + 1));
-				Address a = toAddr(v.addr);
+				Address a = toAddrFast(v.addr);
 				if (a == null) {
 					continue;
 				}
@@ -305,7 +305,7 @@ public class RecoverRttiVtablesScript extends GhidraScript {
 		if (hb == null || !hb.exec) {
 			return false;
 		}
-		Address a = toAddr(h);
+		Address a = toAddrFast(h);
 		Function f = getFunctionAt(a);
 		if (f == null) {
 			new CreateFunctionCmd(a).applyTo(currentProgram);
@@ -327,7 +327,7 @@ public class RecoverRttiVtablesScript extends GhidraScript {
 		}
 	}
 
-	private Address toAddr(long a) {
+	private Address toAddrFast(long a) {
 		try {
 			return currentProgram.getAddressFactory().getDefaultAddressSpace().getAddress(a);
 		}
